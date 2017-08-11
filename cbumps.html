@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+<head>
+<title>Candyland Wars</title>
+
+<style>
+* {
+	margin: 0;
+}
+</style>
+
+<script>
+// Display constants
+var speed = 5;
+var colors = ["red", "green", "blue", "purple", "yellow", "orange", "cyan", "white", "brown", "black", "pink", "gray", "beige", "#888888", "#aaaaaa"];
+var pixelSize = 4;
+
+var fps = 0;
+var canvas;
+var gfx;
+
+var groupList = [];
+
+
+
+function Group(x, y, color) {
+	this.color = color;
+	this.pixels = [[x, y]];
+	this.borders = [];
+}
+ 
+Group.prototype.findLargestNeighbor = function() {
+	var tempSize = 0;
+	var tempNbr;
+	for (var i = 0; i < this.borders.length; i++) {
+		var size = this.borders[i].pixels.length;
+		
+		// Keep track of largest so far
+		if (size > tempSize || (size == tempSize && Math.round(Math.random()))) {
+			tempSize = size;
+			tmpNbr = this.borders[i];
+		}
+	}
+	return tmpNbr;
+};
+
+Group.prototype.merge = function(other) {
+	// TODO: Optimize function if possible
+	// Set color and merge pixels
+	this.color = other.color;
+	this.pixels = this.pixels.concat(other.pixels);
+	
+	// Combine borders uniquely
+	for (var i = 0; i < other.borders.length; i++) {
+		if (!this.borders.includes(other.borders[i])) {
+			this.borders.push(other.borders[i]);
+		}
+	}
+	
+	// Remove references of other or self
+	var self = this;
+	var ff = function(g) {
+		return (g != other && g != self);
+	};
+	
+	this.borders = this.borders.filter(ff);
+	
+	// Remove all references of other and this for border's borders, then add back this
+	for (var i = 0; i < this.borders.length; i++) {
+		this.borders[i].borders = this.borders[i].borders.filter(ff);
+		this.borders[i].borders.push(this);
+	}
+	
+	// Remove other from list
+	var index = groupList.indexOf(other);
+	groupList.splice(index, 1);
+};
+
+Group.prototype.updateBorders = function() {
+	// Find a neighbor with same color and merge with it
+	var match;
+	for (var i = 0; i < this.borders.length; i++) {
+		if (this.borders[i].color == this.color) {
+			match = this.borders[i];
+			break;
+		}
+	}
+	
+	if (match != undefined) {
+		this.merge(match);
+		this.updateBorders();
+	}
+};
+
+Group.prototype.envelop = function() {
+	// Merge with larger neighbor
+	var largestNbr = this.findLargestNeighbor();
+	
+	if (largestNbr.pixels.length >= this.pixels.length) {
+		this.merge(largestNbr);
+		this.updateBorders();
+	}
+};
+
+Group.prototype.draw = function() {
+	// Draw all pixels
+	// TODO: Speed this up by using ImageData?
+	gfx.fillStyle = this.color;
+	for (var i = 0; i < this.pixels.length; i++) {
+		gfx.fillRect(this.pixels[i][0]*pixelSize, this.pixels[i][1]*pixelSize, pixelSize, pixelSize);
+	}
+}
+
+
+
+function initialize() {
+	// Create each group with 1 pixel
+	var tempGroup = new Array(canvas.width/pixelSize);
+	for (var x = 0; x < tempGroup.length; x++) {
+		tempGroup[x] = new Array(canvas.height/pixelSize);
+		for (var y = 0; y < tempGroup[x].length; y++) {
+			// Make sure no colors touch
+			// TODO: Get rid of this and just merge groups with same color
+			var color = colors[Math.floor(Math.random() * colors.length)];
+			while ((x > 0 && color == tempGroup[x-1][y].color) || (y > 0 && color == tempGroup[x][y-1].color)) {
+				color = colors[Math.floor(Math.random() * colors.length)];
+			}
+		
+			tempGroup[x][y] = new Group(x, y, color);
+			groupList.push(tempGroup[x][y]);
+		}
+	}
+	
+	// Add borders to each group and draw it
+	for(var i = 0; i < groupList.length; i++) {
+		var x = groupList[i].pixels[0][0];
+		var y = groupList[i].pixels[0][1];
+		if (x > 0)
+			groupList[i].borders.push(tempGroup[x-1][y]);
+		if (y > 0)
+			groupList[i].borders.push(tempGroup[x][y-1]);
+		if (x < canvas.width/pixelSize - 1)
+			groupList[i].borders.push(tempGroup[x+1][y]);
+		if (y < canvas.height/pixelSize - 1)
+			groupList[i].borders.push(tempGroup[x][y+1]);
+		groupList[i].draw();
+	}
+}
+
+function swallowSmallGroups() {
+	// Have large groups merge with groups that they encompass
+	// and are smaller than 4 pixels
+	for (var i = 0; i < groupList.length; i++) {
+		if (groupList[i].borders.length < 2 && groupList[i].pixels.length < 4)
+			groupList[i].merge(groupList[i].borders[0]);
+	}
+}
+
+function step() {
+	// Pick one group, envelop a larger one, and redraw
+	var group = groupList[Math.floor(Math.random() * groupList.length)];
+	group.envelop();
+	swallowSmallGroups();
+	group.draw();
+}
+
+function animate() {
+	// Animate by stepping a certain amount of times
+	for (var i = 0; i < speed; i++) {
+		step();
+	}
+
+	window.requestAnimationFrame(animate);
+	fps++;
+}
+
+window.onload = function() {
+	// Start animation
+	canvas = document.getElementsByTagName("canvas")[0];
+	gfx = canvas.getContext("2d");
+	
+	initialize();
+	window.requestAnimationFrame(animate);
+	
+	// FPS counter
+	setInterval(function() {
+		document.getElementsByTagName("div")[0].textContent = "FPS: " + fps;
+		fps = 0;
+	}, 1000);
+};
+
+// TODO: Reimplement this later cuz its kind of cool
+/*canvas.addEventListener("mousedown", function(e) {
+	if (e.button == 0) {
+		console.log("clicked " + Math.floor(e.pageX/4)+","+Math.floor(e.pageY/4))
+		var group = tempFind(Math.floor(e.pageX/4), Math.floor(e.pageY/4));
+		group.envelop();
+		group.draw();
+	} else if (e.button == 2) {
+		console.log("Showing neighbors");
+		var group = tempFind(Math.floor(e.pageX/4), Math.floor(e.pageY/4));
+		for (var i = 0; i < group.borders.length; i++) {
+			group.borders[i].drawTemp();
+			setTimeout(drawAll, 2500);
+		}
+	}
+});
+
+canvas.oncontextmenu = function() {
+	return false;
+}*/
+
+/*Group.prototype.drawTemp = function() {
+	gfx.strokeStyle = "red"
+	for (var i = 0; i < this.pixels.length; i++) {
+		gfx.strokeRect(this.pixels[i][0]*4, this.pixels[i][1]*4, 4, 4);
+	}
+}
+
+
+function tempFind(x, y) {
+	for (var i = 0; i < groupList.length; i++) {
+		var p = groupList[i].pixels;
+		for (var j = 0; j < p.length; j++) {
+			if (p[j][0] == x && p[j][1] == y) {
+				return groupList[i];
+			}
+		}
+	}
+	
+	return undefined;
+}
+
+function drawAll() {
+	for (var i = 0; i < groupList.length; i++) {
+		groupList[i].draw();
+	}
+}*/
+
+</script>
+</head>
+<body>
+<canvas width=640 height=480></canvas>
+<div>FPS:</div>
+</body>
+</html>
